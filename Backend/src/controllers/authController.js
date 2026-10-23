@@ -2,6 +2,7 @@ import User from "../models/user.js"
 import bcrypt from "bcryptjs"
 import jwt from "jsonwebtoken"
 import cookie from "cookie-parser"
+import client from "../config/redis.js"
 
 
 export const userRegister = async (req, res) => {
@@ -77,6 +78,15 @@ export const userlogin = async (req, res) => {
             }
         )
 
+        const userProfile = {
+            id: user._id,
+            name: user.name,
+            email: user.email,
+            role: user.role
+        }
+
+        await client.set(`user:${user._id}`, JSON.stringify(userProfile), { EX: 900 })
+
         // res.json({
         //     success: true,
         //     message: "Login successfull",
@@ -102,7 +112,8 @@ export const userlogin = async (req, res) => {
             .status(200)
             .json({
                 success: true,
-                message: "Login successful"
+                message: "Login successful",
+                user: userProfile
             });
 
     } catch (err) {
@@ -170,13 +181,39 @@ export const changePassword = async (req, res) => {
 }
 
 
-export const getMe = (req, res) => {
-    return res.status(200).json({
-        success: true,
-        user: req.user
-    });
-};
+// 
 
+export const getMe = async (req, res) => {
+    try {
+        // Check karein ki req.user ya userId exist karta hai ya nahi
+        if (!req.user || !req.user.userId) {
+            return res.status(401).json({
+                success: false,
+                message: "Unauthorized, user ID missing"
+            });
+        }
+
+        // Redis key mein "user:" prefix lagana zaroori hai (jaise login mein lagaya tha)
+        const getUser = await client.get(`user:${req.user.userId}`);
+
+        if (getUser) {
+            return res.status(200).json({
+                success: true,
+                user: JSON.parse(getUser)
+            });
+        }
+
+        return res.status(200).json({
+            success: true,
+            user: req.user
+        });
+    } catch (err) {
+        return res.status(400).json({
+            success: false,
+            message: err.message
+        });
+    }
+};
 
 export const logout = (req, res) => {
     res.clearCookie("token", {
